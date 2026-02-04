@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Registro automático de eventos</title>
+
+<style>
+body { font-family: Arial; background:#f4f6f4; padding:20px }
+textarea { width:100%; height:160px }
+button { margin-top:10px; padding:10px 15px }
+table { margin-top:20px; width:100%; border-collapse:collapse; background:#fff }
+th,td { border:1px solid #ccc; padding:6px; text-align:center }
+td[contenteditable] { background:#fafafa }
+</style>
+</head>
+
+<body>
+
+<h2>Registro automático de eventos</h2>
+
+<textarea id="mensaje" placeholder="Pega aquí el mensaje del evento"></textarea><br>
+<button onclick="procesarMensaje()">Procesar mensaje</button>
+
+<table>
+<thead>
+<tr>
+<th>Fecha</th>
+<th>Contratante</th>
+<th>Recreadora</th>
+<th>Dirección</th>
+<th>Barrio</th>
+<th>Teléfono</th>
+<th>Costo</th>
+<th>Gasto</th>
+<th>Ganancia</th>
+<th>Notas</th>
+</tr>
+</thead>
+<tbody id="tabla"></tbody>
+</table>
+
+<script>
+// ================= CONFIG =================
+const GASTOS = {
+  juliana:70000,
+  valentina:70000,
+  angelica:70000,
+  angélica:70000,
+  vanessa:20000
+};
+
+let eventos = JSON.parse(localStorage.getItem("eventos")) || [];
+
+const RECREADORAS = Object.keys(GASTOS);
+
+// ================= UTIL =================
+function normalizar(t){
+  return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+
+// ---------- FECHA ----------
+function extraerFecha(t){
+  const m = t.match(/\d{2}\/\d{2}\/\d{4}/);
+  if(m){
+    const [d,mn,y] = m[0].split("/");
+    return `${y}-${mn}-${d}`;
+  }
+  return new Date().toISOString().split("T")[0];
+}
+
+// ---------- COSTO ----------
+function extraerCosto(t){
+  let m = t.match(/\$\s*\d+(\.\d+)?\s*mil|\$\s*\d{1,3}(\.\d{3})+|\d+\s*mil|\d{3,6}/i);
+  if(!m) return 0;
+  let v = m[0].toLowerCase();
+  if(v.includes("mil")) return parseInt(v.replace(/\D/g,"")) * 1000;
+  return parseInt(v.replace(/\D/g,""));
+}
+
+// ---------- TELÉFONO ----------
+function extraerTelefonos(t){
+  const m = t.match(/\b3\d{9}\b/g);
+  return m ? m.join(" / ") : "";
+}
+
+// ---------- DIRECCIÓN ----------
+function extraerDireccion(t){
+  const m = t.match(/(cra|carrera|cl|calle|cll|av|avenida|conjunto|condominio|restaurante)[^,\n]+/i);
+  return m ? m[0].trim() : "";
+}
+
+// ---------- BARRIO ----------
+function extraerBarrio(t){
+  const m = t.match(/b\/\s*([a-záéíóúñ\s]+)/i);
+  return m ? m[1].trim() : "";
+}
+
+// ---------- RECREADORA ----------
+function extraerRecreadora(t){
+  for(let r of RECREADORAS){
+    if(t.includes(r)) return r;
+  }
+  return "";
+}
+
+// ---------- CONTRATANTE (FIX REAL) ----------
+function extraerContratante(original){
+  let m = original.match(/nombre\s+contratante[:*]?\s*([a-záéíóúñ\s]+)/i);
+  if(m) return m[1].trim();
+
+  let nombres = original.match(/[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/g);
+  if(!nombres) return "";
+
+  for(let n of nombres){
+    if(!RECREADORAS.includes(normalizar(n.split(" ")[0]))){
+      return n;
+    }
+  }
+  return "";
+}
+
+// ================= PROCESO =================
+function procesarMensaje(){
+  const original = document.getElementById("mensaje").value;
+  const t = normalizar(original);
+
+  const recreadora = extraerRecreadora(t);
+  const costo = extraerCosto(original);
+  const gasto = GASTOS[recreadora] || 0;
+
+  eventos.push({
+    fecha: extraerFecha(original),
+    contratante: extraerContratante(original),
+    recreadora,
+    direccion: extraerDireccion(original),
+    barrio: extraerBarrio(original),
+    telefono: extraerTelefonos(original),
+    costo,
+    gasto,
+    ganancia: costo - gasto,
+    notas:""
+  });
+
+  guardar(); render();
+  document.getElementById("mensaje").value="";
+}
+
+// ================= RENDER =================
+function render(){
+  eventos.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const t = document.getElementById("tabla");
+  t.innerHTML="";
+
+  eventos.forEach((e,i)=>{
+    t.innerHTML += `
+<tr>
+<td>${e.fecha}</td>
+<td contenteditable oninput="edit(${i},'contratante',this.innerText)">${e.contratante}</td>
+<td contenteditable oninput="editRecreadora(${i},this.innerText)">${e.recreadora}</td>
+<td contenteditable oninput="edit(${i},'direccion',this.innerText)">${e.direccion}</td>
+<td contenteditable oninput="edit(${i},'barrio',this.innerText)">${e.barrio}</td>
+<td contenteditable oninput="edit(${i},'telefono',this.innerText)">${e.telefono}</td>
+<td contenteditable oninput="editCosto(${i},this.innerText)">${e.costo}</td>
+<td>${e.gasto}</td>
+<td>${e.ganancia}</td>
+<td contenteditable oninput="edit(${i},'notas',this.innerText)">${e.notas}</td>
+</tr>`;
+  });
+}
+
+function edit(i,c,v){ eventos[i][c]=v; guardar(); }
+
+function editCosto(i,v){
+  eventos[i].costo = parseInt(v.replace(/\D/g,""))||0;
+  eventos[i].ganancia = eventos[i].costo - eventos[i].gasto;
+  guardar(); render();
+}
+
+function editRecreadora(i,v){
+  const r = normalizar(v);
+  eventos[i].recreadora=r;
+  eventos[i].gasto=GASTOS[r]||0;
+  eventos[i].ganancia=eventos[i].costo-eventos[i].gasto;
+  guardar(); render();
+}
+
+function guardar(){
+  localStorage.setItem("eventos", JSON.stringify(eventos));
+}
+
+render();
+</script>
+
+</body>
+</html>
