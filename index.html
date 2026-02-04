@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Registro automático de eventos</title>
+
+<style>
+body { font-family: Arial; background:#f4f6f4; padding:20px }
+textarea { width:100%; height:160px }
+button { margin-top:10px; padding:10px 15px }
+table { margin-top:20px; width:100%; border-collapse:collapse; background:#fff }
+th,td { border:1px solid #ccc; padding:6px; text-align:center }
+td[contenteditable] { background:#fafafa }
+</style>
+</head>
+
+<body>
+
+<h2>Registro automático de eventos</h2>
+
+<textarea id="mensaje" placeholder="Pega aquí el mensaje del evento"></textarea><br>
+<button onclick="procesarMensaje()">Procesar mensaje</button>
+
+<table>
+<thead>
+<tr>
+<th>Fecha</th>
+<th>Contratante</th>
+<th>Recreadora</th>
+<th>Costo</th>
+<th>Gasto</th>
+<th>Ganancia</th>
+<th>Notas</th>
+</tr>
+</thead>
+<tbody id="tabla"></tbody>
+</table>
+
+<script>
+// ================= CONFIGURACIÓN =================
+const GASTOS = {
+  juliana: 70000,
+  valentina: 70000,
+  angelica: 70000,
+  angélica: 70000,
+  vanessa: 20000
+};
+
+let eventos = JSON.parse(localStorage.getItem("eventos")) || [];
+
+// ================= UTILIDADES =================
+function normalizar(t){
+  return t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+}
+
+// ---------- FECHA ----------
+function extraerFecha(texto){
+  const m = texto.match(/\d{2}\/\d{2}\/\d{4}/);
+  if(m){
+    const [d,mn,y] = m[0].split("/");
+    return `${y}-${mn}-${d}`;
+  }
+  return new Date().toISOString().split("T")[0];
+}
+
+// ---------- COSTO ----------
+function extraerCosto(texto){
+  let m = texto.match(/\$\s*\d{1,3}(\.\d{3})+|\$\s*\d+\s*mil|\$\s*\d+/i);
+  if(!m){
+    m = texto.match(/\d+\s*mil|\d{3,6}/i);
+  }
+  if(!m) return 0;
+
+  let t = m[0].toLowerCase();
+  if(t.includes("mil")) return parseInt(t.replace(/\D/g,"")) * 1000;
+  return parseInt(t.replace(/\D/g,""));
+}
+
+// ---------- RECREADORA ----------
+function extraerRecreadora(texto){
+  for(let r in GASTOS){
+    if(texto.includes(r)) return r;
+  }
+  return "";
+}
+
+// ---------- CONTRATANTE ----------
+function extraerContratante(texto){
+  const m = texto.match(/nombre\s+contratante[:*]?\s*([a-záéíóúñ\s]+)/i);
+  if(m) return m[1].trim();
+
+  const n = texto.match(/[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+\s[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+/);
+  return n ? n[0] : "";
+}
+
+// ================= PROCESO =================
+function procesarMensaje(){
+  const original = document.getElementById("mensaje").value;
+  const texto = normalizar(original);
+
+  const fecha = extraerFecha(original);
+  const recreadora = extraerRecreadora(texto);
+  const costo = extraerCosto(original);
+  const gasto = GASTOS[recreadora] || 0;
+
+  const evento = {
+    fecha,
+    contratante: extraerContratante(original),
+    recreadora,
+    costo,
+    gasto,
+    ganancia: costo - gasto,
+    notas: ""   // 👈 NUEVA CASILLA
+  };
+
+  eventos.push(evento);
+  guardar();
+  render();
+  document.getElementById("mensaje").value = "";
+}
+
+// ================= RENDER =================
+function render(){
+  eventos.sort((a,b)=>a.fecha.localeCompare(b.fecha));
+  const tbody = document.getElementById("tabla");
+  tbody.innerHTML = "";
+
+  eventos.forEach((e,i)=>{
+    tbody.innerHTML += `
+    <tr>
+      <td>${e.fecha}</td>
+      <td contenteditable oninput="editar(${i},'contratante',this.innerText)">${e.contratante}</td>
+      <td contenteditable oninput="editarRecreadora(${i},this.innerText)">${e.recreadora}</td>
+      <td contenteditable oninput="editarCosto(${i},this.innerText)">${e.costo}</td>
+      <td>${e.gasto}</td>
+      <td>${e.ganancia}</td>
+      <td contenteditable oninput="editar(${i},'notas',this.innerText)">${e.notas || ""}</td>
+    </tr>`;
+  });
+}
+
+// ================= EDICIONES =================
+function editar(i,campo,valor){
+  eventos[i][campo] = valor;
+  guardar();
+}
+
+function editarCosto(i,valor){
+  eventos[i].costo = parseInt(valor.replace(/\D/g,"")) || 0;
+  eventos[i].ganancia = eventos[i].costo - eventos[i].gasto;
+  guardar(); render();
+}
+
+function editarRecreadora(i,valor){
+  const r = normalizar(valor);
+  eventos[i].recreadora = r;
+  eventos[i].gasto = GASTOS[r] || 0;
+  eventos[i].ganancia = eventos[i].costo - eventos[i].gasto;
+  guardar(); render();
+}
+
+// ================= STORAGE =================
+function guardar(){
+  localStorage.setItem("eventos", JSON.stringify(eventos));
+}
+
+render();
+</script>
+
+</body>
+</html>
